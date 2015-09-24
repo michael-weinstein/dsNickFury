@@ -1,0 +1,2 @@
+#dsNickFury
+This program is designed to look for potential off-target hits by any Cas9-Crispr type of system, including ones from alternate species with different PAM sites.  This program requires python3 and a cluster system wtih a job queue such as openSGE or similar as well as an active connection to the Internet.  The package dependencies were kept intentionally small, so that you should be able to copy this program to its own directory and be ready to run it out of the box.
