@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
 
 global currentVersion; global versionName; global yearWritten
-currentVersion = "0.9"
-versionName = "Need to test the azimuth functionality when we have a good API key to use."
+currentVersion = "1.0"
+versionName = "ALL SHINY AND CHROME!"
 yearWritten = "2015"
+
+'''
+Needed:  Test Azimuth
+'''
+
+def yesAnswer(question):  #asks the question passed in and returns True if the answer is yes, False if the answer is no, and keeps the user in a loop until one of those is given.  Also useful for walking students through basic logical python functions
+    answer = False  #initializes the answer variable to false.  Not absolutely necessary, since it should be undefined at this point and test to false, but explicit is always better than implicit
+    while not answer:  #enters the loop and stays in it until answer is equal to True
+        print (question + ' (Y/N)')  #Asks the question contained in the argument passed into this subroutine
+        answer = input('>>') #sets answer equal to some value input by the user
+        if str(answer) == 'y' or str(answer) == 'Y':  #checks if the answer is a valid yes answer
+            return True  #sends back a value of True because of the yes answer
+        elif str(answer) == 'n' or str(answer) == 'N': #checks to see if the answer is a valid form of no
+            return False  #sends back a value of False because it was not a yes answer
+        else: #if the answer is not a value indicating a yes or no
+            print ('Invalid response.')
+            answer = False #set ansewr to false so the loop will continue until a satisfactory answer is given
 
 def reportUseage(asimuthUsed):  #this will report usage back to us.  This is required by the people who maintain the Azimuth server.  This will not send back any details of your job except if azimuth was used.
     pass
@@ -119,7 +136,8 @@ def printManual():
 
 class Args(object):
     
-    def __init__(self):    
+    def __init__(self):
+        import os
         import argparse #loads the required library for reading the commandline
         parser = argparse.ArgumentParser()
         parser.add_argument("--manual", help = "Print out the user manual and sample command lines.", action = 'store_true')
@@ -140,7 +158,6 @@ class Args(object):
         parser.add_argument ("--chromosome", help = "Used to specify the chromosome/contig ID.  This should be passed by the machine and not the user.")
         parser.add_argument ("--start", help = "Used to specify the starting byte of the FASTA for indexing.  This should be passed by the machine and not the user.")
         parser.add_argument ("--length", help = "Used to specify the bytelength of the chunk to be indexed by the program.  This should be passed by the machine and not the user.")
-        #parser.add_argument ("--genomeID") #This argument was left over, and will be deleted in future versions if it does not cause issues.
         parser.add_argument ("--forceJobIndex", help = "Force the indexing supervisor instance to take a specific job index.  Mostly useful for debugging functions.")
         parser.add_argument ("--outputDirectory", help = "Directory for outputting search results to a hypervisor.  This should generally be passed by the machine and not the user.")
         parser.add_argument ("--noCleanup", help = "Leave behind any temporary files for future inspection.", action = 'store_true')
@@ -152,11 +169,22 @@ class Args(object):
         parser.add_argument ("--noForcedBases", help = "Prevent forcing bases 1 and/or 3 in the guide RNA to match those submitted for Azimuth analysis")
         parser.add_argument ("--skipAzimuth", help = "Do not attempt Azimuth analysis.", action = 'store_true')
         parser.add_argument ("--parallelJobLimit", help = "Set a limit on the number of parallel jobs allowed at once in the queue for highly parallelized tasks (this MUST be set below your scheduler's limit for queued jobs for a single user, and should be set 5-10% below it).")
+        parser.add_argument ("--genomeDirectory", help = "Specify an alternate directory to search for suitable indexed genomes.")
+        parser.add_argument ("--annotationExpansion", help = "Specify how far from the target site to search for an annotated gene/genomic feature (default is 1KB).")
+        parser.add_argument ("--azimuthSequence", help = "Specify a sequence for Azimuth analysis.")
         args = parser.parse_args()  #puts the arguments into the args object
         
         if not args.mode and not args.manual:  #series of case statements for mode to determine which set of inputs to validate.  If no mode was set, it will see if the user is asking for the manual.  
             quit("No run mode was set on the commandline.")
         self.mode = args.mode
+        if not args.genomeDirectory:
+            self.genomeListDirectory = "genomes/"
+        else:
+            self.genomeListDirectory = args.genomeDirectory
+            if not self.genomeListDirectory[-1] == "/":
+                self.genomeListDirectory += "/"
+            if not os.path.isdir(self.genomeListDirectory) and not self.mode == 'index':
+                quit("User-specified genome: " + self.genomeListDirectory + " not found.")
         if args.mode == 'worker':
             self.setWorkerArgs(args)
         elif args.mode == 'search':
@@ -189,6 +217,8 @@ class Args(object):
             self.sequence = args.sequence.upper()
         else:
             quit("Invalid sequence passed. Please include an underscore between the guide and PAM sequences.")
+        if not len(self.sequence) > 15 and not args.clobber:
+            quit("This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
         self.targetSequence = args.targetSequence
         self.targetFasta = args.targetFasta
         if self.targetFasta and not os.path.isfile(self.targetFasta):
@@ -258,6 +288,8 @@ class Args(object):
             quit("You must specify a sequence to search for.  Remember to place an underscore between the guide and PAM sequences.")
         if not "_" in self.sequence:
             quit("You must include an underscore '_' in your sequence between the guide RNA portion and the PAM sequence.")
+        if not len(self.sequence) > 15 and not args.clobber:
+            quit("This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
         if not args.mismatchTolerance:
             self.mismatchTolerance = 3
         else:
@@ -282,8 +314,18 @@ class Args(object):
         self.noCleanup = args.noCleanup
         self.forceGenome = args.forceGenome
         self.skipAzimuth = True
+        self.annotationExpansion = args.annotationExpansion
+        if not self.annotationExpansion:
+            self.annotationExpansion = 1000
+        else:
+            try:
+                self.annotationExpansion = int(self.annotationExpansion)
+            except ValueError:
+                quit("Annotation expansion range must be an integer value.")
+        self.azimuthSequence = args.azimuthSequence
+        if not self.azimuthSequence or self.azimuthSequence == "False":
+            self.azimuthSequence = False
 
-            
     def setIndexArgs(self, args):  #Validating arguments for launching an indexing supervisor.  This will also require good validations as users are likely to be launching this on their own.
         import os
         self.mode = "index"
@@ -300,6 +342,8 @@ class Args(object):
             self.sequence = args.sequence.upper()
         else:
             quit("Invalid sequence passed. Please include an underscore between the guide and PAM sequences.")
+        if not len(self.sequence) > 15 and not args.clobber:
+            quit("This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
         if not args.inputfile:
             quit("No FASTA specified for searching.")
         if os.path.isfile(args.inputfile):
@@ -415,22 +459,24 @@ class TargetFinder(object):  #This object is analogous to a FASTA indexer, excep
             if windowSeq[-self.pamLength:] in self.pamList:
                 guide = windowSeq[:-self.pamLength]
                 pam = windowSeq[-self.pamLength:]
-                longSeq = self.getLongSeq(guide, pam,'+')  #tries to get an extended sequence for azimuth analysis
+                if not args.skipAzimuth:
+                    longSeq = self.getLongSeq(guide, pam,'+')  #tries to get an extended sequence for azimuth analysis
                 self.matches.append(TargetSite(guide + "_" + pam, longSeq))
             if revComp[-self.pamLength:] in self.pamList:
                 guide = revComp[:-self.pamLength]
                 pam = revComp[-self.pamLength:]
-                longSeq = self.getLongSeq(guide, pam,'-')
+                if not args.skipAzimuth:
+                    longSeq = self.getLongSeq(guide, pam,'-')
                 self.matches.append(TargetSite(guide + "_" + pam, longSeq))
             self.advance()
-        if not args.skipAzimuth:
-            self.useAzimuth = True
-        else:
-            self.useAzimuth = False
-        if self.useAzimuth:
-            self.azimuthAPIkey = self.getAzimuthAPIkey()
-            if self.azimuthAPIkey:
-                self.assignAzimuthScores()
+        # if not args.skipAzimuth:
+        #     self.useAzimuth = True
+        # else:
+        #     self.useAzimuth = False
+        # if self.useAzimuth:
+        #     self.azimuthAPIkey = self.getAzimuthAPIkey()
+        #     if self.azimuthAPIkey:
+        #         self.assignAzimuthScores()
         return self.matches
     
     def advance(self):  #moves the window ahead one character, then checks to see if it has reached the end
@@ -443,9 +489,17 @@ class TargetFinder(object):  #This object is analogous to a FASTA indexer, excep
         guideExtensionLength = 24 - len(self.guide)
         try:  #we need a try/except block for this because it is possible that the extended sequence will run us off the end of the sequence
             if strand == '+':
-                pamExtension = self.target[self.end : self.end + pamExtensionLength]
+                pamEnd = self.end + pamExtensionLength
+                guideStart = self.start - guideExtensionLength
+                if pamEnd > len(self.target) or guideStart < 0:
+                    return False
+                pamExtension = self.target[self.end : pamEnd]
                 guideExtension = self.target[self.start - guideExtensionLength : self.start]
             if strand == '-':
+                pamStart = self.start - pamExtensionLength
+                guideEnd = self.end + guideExtensionLength
+                if pamStart < 0 or guideEnd > len(self.target):
+                    return False
                 pamExtension = self.target[self.start - pamExtensionLength : self.start]
                 guideExtension = self.target[self.end : self.end + guideExtensionLength]
                 pamExtension = str(ReverseComplement(pamExtension))
@@ -473,9 +527,11 @@ class TargetFinder(object):  #This object is analogous to a FASTA indexer, excep
         #     extendedSeq = str(extendedSeq)  #return the value back to a string for later submission
         return extendedSeq
     
-    def getAzimuth(self, sequence):  #this handles communication with the azure server to get a score.  This can later be replaced if we decide to run a local instance with the source code.
+    def getAzimuth(self, sequence, failedPrevious = False):  #this handles communication with the azure server to get a score.  This can later be replaced if we decide to run a local instance with the source code.
         import urllib.request
         import json
+        import time
+        import sys #for error catching
         data = {
             "Inputs":{
                 "input1":{
@@ -486,7 +542,8 @@ class TargetFinder(object):  #This object is analogous to a FASTA indexer, excep
                 "GlobalParameters": {}
         }
         body = str.encode(json.dumps(data))
-        url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/c24d128abfaf4832abf1e7ef45db4b54/execute?api-version=2.0&details=true'
+        #url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/c24d128abfaf4832abf1e7ef45db4b54/execute?api-version=2.0&details=true'
+        url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/5c6cbabaef4947b4b7425e934b6f7d6b/execute?api-version=2.0&details=true'  #slower, but only one working for now.  Use for testing
         api_key = self.azimuthAPIkey
         headers = {'Content-Type':'application/json', 'Authorization':('Bearer '+ api_key)}
         req = urllib.request.Request(url, body, headers)
@@ -494,21 +551,34 @@ class TargetFinder(object):  #This object is analogous to a FASTA indexer, excep
             response = urllib.request.urlopen(req)
             result = response.read().decode('utf-8')
             result = json.loads(result)
-            #return float(result['Results']['output2']['value']['Values'][0][0])
-            return float(result['Results'][result['Results'].keys()[0]]['value']['Values'][0][0])  #SORT THIS OUT WHEN WE START GETTING TEST CASES FROM THE SERVER
+            return float(result['Results']['output2']['value']['Values'][0][0])
         except urllib.error.HTTPError as error:
             if error.code == 401:
                 print("Unable to use Azimuth due to a possible invalid API key.  Please check on the status of key: " + self.azimuthAPIkey)
             else:
-                print("The request failed with status code: " + str(error.code))
+                print("The Azimuth request failed with status code: " + str(error.code))
                 print(error.info())
                 print(json.loads(error.read().decode('utf-8')))
             self.useAzimuth = False
             return -1  #Remember that -1 is our placeholder value for a failed attempt or no attempt.
         except urllib.error.URLError:
-            print("Unable to reach/find Azimuth server.  Please confirm you are connected to the internet.")
-            self.useAzimuth = False
-            return -1
+            if not failedPrevious:
+                time.sleep(5) #wait 5 seconds before retry
+                return self.getAzimuth(sequence, True)
+            else:
+                print("Unable to reach/find Azimuth server.  Please confirm you are connected to the internet.")
+                self.useAzimuth = False
+                return -1
+        except:  #Allowing this for now while dealing with many possible exceptions due to experimental server and software
+            if not failedPrevious:
+                time.sleep(5)
+                return self.getAzimuth(sequence, True)  #give it another go, because why not...
+            else:
+                error = sys.exc_info()
+                print("Unexpected error in Azimuth scoring:")
+                for item in error:
+                    print(item)
+                return -1
         
     def getAzimuthAPIkey(self):  #this gets the API key from a file
         import os
@@ -607,12 +677,12 @@ class TargetSelection(object):  #This is the main running object for the target 
     
     def selectIndexedGenome(self):  #uses the user-passed guide_pam scheme to pick an indexed genome (or say if we don't have one) that is suitable for this run.  Remember that the sequence is stored in reverse
         import os
-        if not os.path.isdir("genomes/"):
+        if not os.path.isdir(args.genomeListDirectory):
             quit("No indexed genome directory found.  Please run the indexer to create indexed genomes for searching.")
         seqPam, seqGuide = args.sequence[::-1].split("_")
         self.pam = seqPam[::-1]
         self.guide = seqGuide[::-1]
-        directoryContents = os.listdir("genomes/")
+        directoryContents = os.listdir(args.genomeListDirectory)
         for item in directoryContents:
             if not item[0] == "." and "." in item and "_" in item and "NNN" in item:
                 itemSeq, itemGenome, species = item.split(".")
@@ -654,38 +724,48 @@ class TargetSelection(object):  #This is the main running object for the target 
         self.submittedJob = 1
         maxSimultaneousJobs = args.maxParallelJobs // args.parallelJobs
         while self.jobList['queued'] or self.jobList['running']:
-            while self.jobList['queued'] and len(self.jobList['running']) < maxSimultaneousJobs:
-                self.createJobBash(self.jobList['queued'][0])
-                self.submitJob(self.jobList['queued'][0])
-                self.jobList['running'].append(self.jobList['queued'][0])
-                del self.jobList['queued'][0]
-            while len(self.jobList['running']) >= maxSimultaneousJobs or len(self.jobList['queued']) == 0:
-                newlyCompleted = []
-                for i in range(0, len(self.jobList['running'])):
-                    if os.path.isfile(self.tempDir + "/completed/" + self.jobList['running'][i].cutSeq):
-                        newlyCompleted.append(i)
-                newlyCompleted.sort(reverse = True)  #we need to reverse this list so that we remove items in reverse index order.  If we did not do this, and we had two items on the list (say 1 and 3), we could potentially remove item 1 first, and then item 3 becomes item 2, with what started off as item 4 now targeted for deletion and a very high probability that at some point we will run off the end of the list (IndexError)
-                if newlyCompleted:
-                    for completedIndex in newlyCompleted:
-                        self.jobList['complete'].append(self.jobList['running'][completedIndex])
-                        del self.jobList['running'][completedIndex]
-                if not self.jobList['running'] and not self.jobList['queued']:
-                    break
-                time.sleep(10)
+            try:
+                while self.jobList['queued'] and len(self.jobList['running']) < maxSimultaneousJobs:
+                    self.createJobBash(self.jobList['queued'][0])
+                    self.submitJob(self.jobList['queued'][0])
+                    self.jobList['running'].append(self.jobList['queued'][0])
+                    del self.jobList['queued'][0]
+                while len(self.jobList['running']) >= maxSimultaneousJobs or len(self.jobList['queued']) == 0:
+                    newlyCompleted = []
+                    for i in range(0, len(self.jobList['running'])):
+                        if os.path.isfile(self.tempDir + "/completed/" + self.jobList['running'][i].cutSeq):
+                            newlyCompleted.append(i)
+                    newlyCompleted.sort(reverse = True)  #we need to reverse this list so that we remove items in reverse index order.  If we did not do this, and we had two items on the list (say 1 and 3), we could potentially remove item 1 first, and then item 3 becomes item 2, with what started off as item 4 now targeted for deletion and a very high probability that at some point we will run off the end of the list (IndexError)
+                    if newlyCompleted:
+                        for completedIndex in newlyCompleted:
+                            self.jobList['complete'].append(self.jobList['running'][completedIndex])
+                            del self.jobList['running'][completedIndex]
+                    if not self.jobList['running'] and not self.jobList['queued']:
+                        break
+                    time.sleep(10)
+            except KeyboardInterrupt:
+                for key in list(self.jobList.keys()):
+                    print(key)
+                    for item in self.jobList[key]:
+                        print("\t" + item.cutSeq)
+                    if yesAnswer("Continue with run?"):
+                        continue
+                    else:
+                        quit("OK, terminating run.")
                     
     def createJobBash(self, job):  #Creates a bash file to submit for running the job
         self.bash = self.tempDir + "/" + str(job.cutSeq) + ".sh"
         bashFile = open(self.bash, 'w')
         bashFile.write("#! /bin/bash\n")
         bashFile.write("module load python/3.4\n")
-        bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode search --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + job.cutSeq + " --forceGenome " + self.indexedGenome + " --outputDirectory " + self.tempDir + " --parallelJobs " + str(args.parallelJobs) + " --mismatchTolerance " + str(args.mismatchTolerance) + "\n")
+        bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode search --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + job.cutSeq + " --forceGenome " + self.indexedGenome + " --outputDirectory " + self.tempDir + " --parallelJobs " + str(args.parallelJobs) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + " --azimuthSequence " + str(job.longSeq) + "\n")
         bashFile.close()
     
     def submitJob(self, job):  #submits the bash file to the queue scheduler
         import os
         shortName = "ShieldHQ" + str(self.submittedJob)
         self.submittedJob += 1
-        command = "qsub -cwd -V -N " + shortName + " -l h_data=2G,time=0:59:00 -e " + os.getcwd() +  "/schedulerOutput/ -o " + os.getcwd() + "/schedulerOutput/ " + self.bash
+        command = "qsub -cwd -V -N " + shortName + " -l h_data=2G,time=23:59:00 -e " + os.getcwd() +  "/schedulerOutput/ -o " + os.getcwd() + "/schedulerOutput/ " + self.bash
         if not args.mock:
             import os
             os.system(command)
@@ -699,6 +779,7 @@ class TargetSelection(object):  #This is the main running object for the target 
             genesCounted = [] #prevent us from counting multiple hits in the same gene twice or from counting hits due to a nearby pseudogene
             result = pickle.load(open(self.tempDir + "/result/" + self.targetList[i].cutSeq, 'rb'))
             self.targetList[i].matches = result['matches']
+            self.targetList[i].azimuthScore = result['azimuthScore']
             if len(self.targetList[i].matches[0]) > 1:
                 first = self.targetList[i].matches[0][0].gene
                 for site in self.targetList[i].matches[0]:
@@ -725,7 +806,7 @@ class TargetSelection(object):  #This is the main running object for the target 
         for target in self.targetList:
             if target.acceptable:
                 print(target.cutSeq + "\tMismatch Risk: " + str(target.mismatchRisk))
-                if target.azimuthScore != -1:
+                if int(target.azimuthScore) != -1:
                     print(" "*len(target.cutSeq) + "\tAzimuth Score: " + str(target.azimuthScore))
                 else:
                     print(" "*len(target.cutSeq) + "\tAzimuth Score: Cannot determine")
@@ -748,6 +829,78 @@ class TargetSelection(object):  #This is the main running object for the target 
         import shutil
         shutil.rmtree(self.tempDir)
                         
+
+#=================================================Azimuth analysis object==================================================================================================================
+
+class AzimuthAnalysis(object):
+
+    def __init__(self, sequence, failedPrevious = False):  #this handles communication with the azure server to get a score.  This can later be replaced if we decide to run a local instance with the source code.
+        import urllib.request
+        import json
+        import time
+        import sys #for error catching
+        self.azimuthAPIkey = self.getAzimuthAPIkey()
+        if not self.azimuthAPIkey:
+            self.score = -1
+        data = {
+            "Inputs":{
+                "input1":{
+                    "ColumnNames":["sequence", "cutsite", "percentpeptide"],
+                    "Values":[[sequence, "-1", "-1"]]
+                }
+            },
+                "GlobalParameters": {}
+        }
+        body = str.encode(json.dumps(data))
+        #url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/c24d128abfaf4832abf1e7ef45db4b54/execute?api-version=2.0&details=true'
+        url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/5c6cbabaef4947b4b7425e934b6f7d6b/execute?api-version=2.0&details=true'  #slower, but only one working for now.  Use for testing
+        api_key = self.azimuthAPIkey
+        headers = {'Content-Type':'application/json', 'Authorization':('Bearer '+ api_key)}
+        req = urllib.request.Request(url, body, headers)
+        try:
+            response = urllib.request.urlopen(req)
+            result = response.read().decode('utf-8')
+            result = json.loads(result)
+            self.score = float(result['Results']['output2']['value']['Values'][0][0])
+        except urllib.error.HTTPError as error:
+            if error.code == 401:
+                print("Unable to use Azimuth due to a possible invalid API key.  Please check on the status of key: " + self.azimuthAPIkey)
+            else:
+                print("The Azimuth request failed with status code: " + str(error.code))
+                print(error.info())
+                print(json.loads(error.read().decode('utf-8')))
+            self.useAzimuth = False
+            self.score = -1  #Remember that -1 is our placeholder value for a failed attempt or no attempt.
+        except urllib.error.URLError:
+            if not failedPrevious:
+                time.sleep(5) #wait 5 seconds before retry
+                self.score = AzimuthAnalysis(sequence, True).score
+            else:
+                print("Unable to reach/find Azimuth server.  Please confirm you are connected to the internet.")
+                self.useAzimuth = False
+                self.score = -1
+        except:  #Allowing this for now while dealing with many possible exceptions due to experimental server and software
+            if not failedPrevious:
+                time.sleep(5)
+                self.score = AzimuthAnalysis(sequence, True)  #give it another go, because why not...
+            else:
+                error = sys.exc_info()
+                print("Unexpected error in Azimuth scoring:")
+                for item in error:
+                    print(item)
+                self.score = -1
+        
+    def getAzimuthAPIkey(self):  #this gets the API key from a file
+        import os
+        if os.path.isfile("azimuth.apikey"):
+            file = open("azimuth.apikey", 'r')
+            key = file.read()
+            file.close()
+            key = key.strip()
+            return key
+        else:
+            print("Unable to run azimuth.  Cannot locate API key.  Please save the key the same directory as this program under filename azimuth.apikey.")
+            return False
 
 #=================================================Reverse Complement and other sequence manipulation.  Possibly move to its own module later?===========================================Complete==============================
 
@@ -1135,12 +1288,16 @@ class SearchSupervisor(object):
         else:
             genomeDirectory = args.forceGenome
             pam, sequence, self.species = genomeDirectory.split(".")
-        self.genomeDirectory = "genomes/" + genomeDirectory
+        self.genomeDirectory = args.genomeListDirectory + genomeDirectory
         self.createTempDir()
         print("Creating job list")
         self.createJobList()
         print("Assigning jobs")
         self.assignJobs()
+        print("Calculating Azimuth Score")
+        self.azimuthScore = -1
+        if args.azimuthSequence:  #Do this after finishing local job, but before monitoring, since we will still be waiting on them
+            self.azimuthScore = AzimuthAnalysis(args.azimuthSequence).score
         print("Monitoring")
         self.monitorJobs()
         print("Gathering")
@@ -1159,10 +1316,10 @@ class SearchSupervisor(object):
   
     def selectIndexedGenome(self):
         import os
-        if not os.path.isdir("genomes/"):
-            quit("No indexed genome directory found.  Pleae run the indexer to create indexed genomes for searching.")
+        if not os.path.isdir(args.genomeListDirectory):
+            quit("No indexed genome directory found.  Please run the indexer to create indexed genomes for searching.")
         seqPam, seqGuide = args.sequence[::-1].split("_")
-        directoryContents = os.listdir("genomes/")
+        directoryContents = os.listdir(args.genomeListDirectory)
         for item in directoryContents:
             if not item[0] == "." and "." in item and "_" in item and "NNN" in item:
                 itemSeq, itemGenome, itemSpecies = item.split(".")
@@ -1249,7 +1406,7 @@ class SearchSupervisor(object):
         bashFile = open(self.bash, 'w')
         bashFile.write("#! /bin/bash\n")
         bashFile.write("module load python/3.4\n")
-        bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode worker --workerID " + str(jobID) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + args.sequence + " --inputDirectory " + self.genomeDirectory + " --tempDir " + self.tempDir + "\n")
+        bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode worker --workerID " + str(jobID) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + args.sequence + " --inputDirectory " + self.genomeDirectory + " --tempDir " + self.tempDir + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         bashFile.close()
     
     def submitJob(self, jobID):
@@ -1300,7 +1457,7 @@ class SearchSupervisor(object):
                 print("Sorting group " + str(i))
             self.matches[i].sort(key = operator.attrgetter('sortValue'))
     
-    def getAnnotation(self, site, expand = 0):
+    def getAnnotation(self, site, expand = 0, failedPrevious = False):
         import urllib.request
         import time
         import json
@@ -1315,13 +1472,29 @@ class SearchSupervisor(object):
             ensembl = ensembl.read().decode('utf-8')
             ensembl = json.loads(ensembl)
         except urllib.error.HTTPError as error:
-            print("The ensembl annotation request failed with status code: " + str(error.code))
-            print(error.info())
-            print(error.read().decode('utf-8'))
-            return "Unable to get annotation.  FullURL = " + fullURL
+            if not failedPrevious:
+                time.sleep(5)
+                return self.getAnnotation(site, expand, True)
+            else:
+                print("The ensembl annotation request failed with status code: " + str(error.code))
+                print(error.info())
+                print(error.read().decode('utf-8'))
+                return "Unable to get annotation.  Error code: " + str(error.code) + " FullURL = " + fullURL
         except urllib.error.URLError:
-            print("Unable to reach/find ensembl server.  Please confirm you are connected to the internet.")
-            return "Unable to contact ensembl."
+            if not failedPrevious:
+                time.sleep(5)
+                return self.getAnnotation(site, expand, True)
+            else:
+                print("Unable to reach/find ensembl server.  Please confirm you are connected to the internet.")
+                return "Unable to contact ensembl. (URL/network error)"
+        except http.client.HTTPException as error:
+            if not failedPrevious:
+                time.sleep(5)
+                return self.getAnnotation(site, expand, True)
+            else:
+                print("Got bad status line trying to pull up " + fullURL)
+                print("Response: " + error.read().decode('utf-8'))
+                return "Unable to get annotation due to BadStatusCode error.  Matching " + args.sequence
         gene = False
         for item in ensembl:
             if item['description']:  #check if a gene is listed for the site, if not, check the next one.  If we get to the end and find no gene, then we return no gene.  Sometimes ensembl returns a result with no gene listed, followed by a second annotation listing the gene.
@@ -1335,11 +1508,11 @@ class SearchSupervisor(object):
         for key in list(self.matches.keys()):
             for i in range(0,len(self.matches[key])):
                 if not self.matches[key][i].gene:
-                    self.matches[key][i].gene = self.getAnnotation(self.matches[key][i], 1000)
+                    self.matches[key][i].gene = self.getAnnotation(self.matches[key][i], args.annotationExpansion // 10)
         for key in list(self.matches.keys()):
             for i in range(0,len(self.matches[key])):
                 if not self.matches[key][i].gene:
-                    self.matches[key][i].gene = self.getAnnotation(self.matches[key][i], 5000)
+                    self.matches[key][i].gene = self.getAnnotation(self.matches[key][i], args.annotationExpansion)
             
     def reportResults(self):
         for i in range(0,args.mismatchTolerance + 1):
@@ -1354,6 +1527,7 @@ class SearchSupervisor(object):
         outputData = {}
         outputData['sequence'] = args.sequence
         outputData['matches'] = self.matches
+        outputData['azimuthScore'] = self.azimuthScore
         print(self.matches)
         print(args.sequence)
         print("Starting pickle")
@@ -1533,10 +1707,10 @@ class FASTASupervisor(object):
     
     def suitableIndexedGenomeExists(self):
         import os
-        if not os.path.isdir("genomes"):
+        if not os.path.isdir(args.genomeListDirectory):
             return False
         seqPam, seqGuide = args.sequence[::-1].split("_")
-        directoryContents = os.listdir("genomes/")
+        directoryContents = os.listdir(args.genomeListDirectory)
         for item in directoryContents:
             if not item[0] == "." and "." in item and "_" in item and "NNN" in item:
                 itemSeq, itemGenome, itemSpecies = item.split(".")
@@ -1587,11 +1761,11 @@ class FASTASupervisor(object):
     
     def createOutputDir(self):
         import os
-        if not os.path.isdir("genomes"):
-            os.mkdir("genomes")
+        if not os.path.isdir(args.genomeListDirectory):
+            os.mkdir(args.genomeListDirectory)
         if not os.path.isdir("genomeData"):
             os.mkdir("genomeData")
-        outputDirectory = "genomes/" + args.sequence[::-1] + "." + args.genome + "." + args.species
+        outputDirectory = args.genomeListDirectory + args.sequence[::-1] + "." + args.genome + "." + args.species
         if os.path.isdir(outputDirectory) and not args.clobber:
             quit("This genome/system combination has already been indexed.")
         if not os.path.isdir(outputDirectory):
@@ -1689,9 +1863,9 @@ class FASTASupervisor(object):
         bashFile.write("#! /bin/bash\n")
         bashFile.write("module load python/3.4\n")
         if not workerID:
-            bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode FASTAWorker --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --species " + args.species + "\n")
+            bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode FASTAWorker --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         else:
-            bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode FASTAWorker --workerID " + str(workerID) + " --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --chunkSize " + str(args.chunkSize) + " --species " + args.species + "\n")
+            bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode FASTAWorker --workerID " + str(workerID) + " --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --chunkSize " + str(args.chunkSize) + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         bashFile.close()
     
     def submitJob(self, job, workerID = False):
@@ -1886,7 +2060,7 @@ class FASTAreader(object):
             #print("ChunkStart: " + str(chunkStart))
         else:
             chunkStart = 0
-        self.outputDirectory = "genomes/" + args.sequence[::-1] + "." + args.genome + "." + args.species
+        self.outputDirectory = args.genomeListDirectory + args.sequence[::-1] + "." + args.genome + "." + args.species
         try:
             chromosome = int(args.chromosome)
             chromosome = str(chromosome).zfill(2)
