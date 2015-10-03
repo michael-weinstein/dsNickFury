@@ -31,10 +31,10 @@ global pythonInterpreterAbsolutePath
 pythonInterpreterAbsolutePath = ""  #Set the absolute path for your python interpreter here.  Depending on your system configuration, you may also be able to use a shortcut, such as python3
 
 global selectionModeTargetLimitperJob
-selectionModeTargetLimitPerJob = 0  #This prevents a user from submitting a job with too many target sites that might overload or degrade performance on the system.  Clobber mode can override this.  Change this value according to your system's capabilities.  Set to 0 or negative value for no limit.
+selectionModeTargetLimitPerJob = 30  #This prevents a user from submitting a job with too many target sites that might overload or degrade performance on the system.  Clobber mode can override this.  Change this value according to your system's capabilities.  Set to 0 or negative value for no limit.
 
 global defaultSelectionModeParallelJobLimit
-defaultSelectionModeParallelJobLimit = 230  #Change the limit on how many parallel jobs can run for each selection job here
+defaultSelectionModeParallelJobLimit = 32  #Change the limit on how many parallel jobs can run for each selection job here
 
 global currentVersion
 global versionName
@@ -75,7 +75,7 @@ def printManual():
     import urllib.request
     rawManual = urllib.request.urlopen('https://raw.githubusercontent.com/michael-weinstein/dsNickFury/master/readme.md')
     text = rawManual.read().decode('utf-8')
-    print(text)    
+    print(text)
     
 def checkPythonInterpreterAbsolutePath(absPath):
     import os
@@ -613,7 +613,7 @@ class TargetSelection(object):  #This is the main running object for the target 
             self.targetList = TargetFinder(self.target).findMatches()
         if not self.targetList:
             quit('ABORTED: No suitable target sequences found.')
-        if selectionModeTargetLimitPerJob > 0 and len(self.targetList) > selectionModeTargetLimitPerJob and not args.clobber:
+        if len(self.targetList) > selectionModeTargetLimitPerJob and not args.clobber:
             quit("ABORTED: Too many targets in sequence.  Try running a shorter target sequence, a more specific Crispr system, or using clobber mode (argument -9) to override this.")
         print("Found " + str(len(self.targetList)) + " potential target sites.")
         self.createTempDir()
@@ -775,17 +775,17 @@ class TargetSelection(object):  #This is the main running object for the target 
         if args.scratchFolder:
             scratchFolder = " --scratchFolder " + args.scratchFolder
         #bashFile.write("module load python/3.4\n")
-        bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury" + currentVersion + ".py --mode search --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + job.cutSeq + " --forceGenome " + self.indexedGenome + " --outputDirectory " + self.tempDir + " --parallelJobs " + str(args.parallelJobs) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + " --azimuthSequence " + str(job.longSeq) + scratchFolder + "\n")
+        bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury-Server" + currentVersion + ".py --mode search --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + job.cutSeq + " --forceGenome " + self.indexedGenome + " --outputDirectory " + self.tempDir + " --parallelJobs " + str(args.parallelJobs) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + " --azimuthSequence " + str(job.longSeq) + scratchFolder + "\n")
         bashFile.close()
     
     def submitJob(self, job):  #submits the bash file to the queue scheduler
-        import os
+        import subprocess
         shortName = "ShieldHQ" + str(self.submittedJob)
+        print("Submitting " + shortName)
         self.submittedJob += 1
-        command = "qsub -cwd -V -N " + shortName + " -l h_data=2G,time=23:59:00 -e " + os.getcwd() +  "/schedulerOutput/ -o " + os.getcwd() + "/schedulerOutput/ " + self.bash
+        command = "bash " + self.bash
         if not args.mock:
-            import os
-            os.system(command)
+           subprocess.Popen(command, shell = True)
         else:
             print ("MOCK SUBMIT: " + command)
             
@@ -1458,16 +1458,16 @@ class SearchSupervisor(object):
         bashFile = open(self.bash, 'w')
         bashFile.write("#! /bin/bash\n")
         #bashFile.write("module load python/3.4\n")
-        bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury" + currentVersion + ".py --mode worker --workerID " + str(jobID) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + args.sequence + " --inputDirectory " + self.genomeDirectory + " --tempDir " + self.tempDir + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
+        bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury-Server" + currentVersion + ".py --mode worker --workerID " + str(jobID) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + args.sequence + " --inputDirectory " + self.genomeDirectory + " --tempDir " + self.tempDir + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         bashFile.close()
     
     def submitJob(self, jobID):
-        import os
+        import subprocess
         shortName = "NickFury" + str(jobID)
-        command = "qsub -cwd -V -N " + shortName + " -l h_data=2G,time=0:59:00 -e " + os.getcwd() +  "/schedulerOutput/ -o " + os.getcwd() + "/schedulerOutput/ " + self.bash
+        print("Submitting " + shortName)
+        command = "bash " + self.bash
         if not args.mock:
-            import os
-            os.system(command)
+            subprocess.Popen(command, shell = True)
         else:
             print ("MOCK SUBMIT: " + command)
             
@@ -1929,21 +1929,21 @@ class FASTASupervisor(object):
         bashFile.write("#! /bin/bash\n")
         bashFile.write("module load python/3.4\n")
         if not workerID:
-            bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury" + currentVersion + ".py --mode FASTAWorker --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
+            bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury-Server" + currentVersion + ".py --mode FASTAWorker --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         else:
-            bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury" + currentVersion + ".py --mode FASTAWorker --workerID " + str(workerID) + " --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --chunkSize " + str(args.chunkSize) + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
+            bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury-Server" + currentVersion + ".py --mode FASTAWorker --workerID " + str(workerID) + " --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --chunkSize " + str(args.chunkSize) + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         bashFile.close()
     
     def submitJob(self, job, workerID = False):
-        import os
+        import subprocess
         if not workerID:
             shortName = "NickFury" + job.contig
         else:
-            shortName = "NF." + job.contig + "." + str(workerID)    
-        command = "qsub -cwd -V -N " + shortName + " -l h_data=2G,time=0:59:99 -e " + os.getcwd() +  "/schedulerOutput/ -o " + os.getcwd() + "/schedulerOutput/ " + self.bash
+            shortName = "NF." + job.contig + "." + str(workerID)
+        print("Submitting " + shortName)
+        command = "bash" + self.bash
         if not args.mock:
-            import os
-            os.system(command)
+            subprocess.Popen(command, shell = True)
         else:
             print ("MOCK SUBMIT: " + command)
     
@@ -2200,8 +2200,12 @@ class FASTAreader(object):
 def main():
     import datetime
     import os
-    if not os.path.isdir("schedulerOutput"):  #Used for writing scheduler output of subprocesses to a single folder, otherwise this folder can start getting messy.  Only needed for cluster operation, not single server.
-       os.mkdir("schedulerOutput")
+    if not pythonInterpreterAbsolutePath:
+        quit("ABORTED: You must set the absolute path for your python interpreter at the beginning of this script.")
+    if not os.path.isfile(pythonInterpreterAbsolutePath):
+        quit("ABORTED: Python interpreter not found at " + pythonInterpreterAbsolutePath + " please correct the location.")
+    #if not os.path.isdir("schedulerOutput"):  #Used for writing scheduler output of subprocesses to a single folder, otherwise this folder can start getting messy.  Only needed for cluster operation, not single server.
+    #    os.mkdir("schedulerOutput")
     startTime = datetime.datetime.now()
     arguments = Args()
     global args
