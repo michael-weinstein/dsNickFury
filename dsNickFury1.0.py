@@ -26,12 +26,37 @@ You agree:
 11.	You will not use any name, trade name, trademark, name of any campus, or other designation of the Regents of the University of California in advertising, publicity, or other promotional activity, except as permitted herein.
 '''
 
-global currentVersion; global versionName; global yearWritten
+#USEFUL DEFAULT SETTINGS HERE
+global pythonInterpreterAbsolutePath
+pythonInterpreterAbsolutePath = "python3"  #Set the absolute path for your python interpreter here.  Depending on your system configuration, you may also be able to use a shortcut, such as python3
+
+global selectionModeTargetLimitperJob
+selectionModeTargetLimitPerJob = 0  #This prevents a user from submitting a job with too many target sites that might overload or degrade performance on the system.  Clobber mode can override this.  Change this value according to your system's capabilities.  Set to 0 or negative value for no limit.
+
+global defaultSelectionModeParallelJobLimit
+defaultSelectionModeParallelJobLimit = 230  #Change the limit on how many parallel jobs can run for each selection job here
+
+global currentVersion
+global versionName
+global yearWritten
+
 currentVersion = "1.0"
 versionName = "ALL SHINY AND CHROME!"
 yearWritten = "2015"
 
-
+def checkPythonInterpreterAbsolutePath(absPath):
+    import os
+    import subprocess
+    if not absPath:
+        quit("ABORTED: You must set the absolute path for your python interpreter at the beginning of this script.")
+    if not os.path.isfile(absPath):  #if the absolute path is not actually a file, check if we have an alias we can expand upon
+        import subprocess
+        try:
+            absPath = subprocess.check_output(['which',absPath]).decode('utf-8').strip()
+        except subprocess.CalledProcessError:
+            quit("ABORTED: Python interpreter not found at " + absPath + " and it does not appear to be a valid alias.  Please correct the location.")
+    return absPath
+pythonInterpreterAbsolutePath = checkPythonInterpreterAbsolutePath(pythonInterpreterAbsolutePath)
 
 def yesAnswer(question):  #asks the question passed in and returns True if the answer is yes, False if the answer is no, and keeps the user in a loop until one of those is given.  Also useful for walking students through basic logical python functions
     answer = False  #initializes the answer variable to false.  Not absolutely necessary, since it should be undefined at this point and test to false, but explicit is always better than implicit
@@ -46,8 +71,13 @@ def yesAnswer(question):  #asks the question passed in and returns True if the a
             print ('Invalid response.')
             answer = False #set ansewr to false so the loop will continue until a satisfactory answer is given
 
-def reportUseage(asimuthUsed):  #this will report usage back to us.  This is required by the people who maintain the Azimuth server.  This will not send back any details of your job except if azimuth was used.
-    pass
+def reportUsage(details):  #this will report usage back to us.  This is required by the people who maintain the Azimuth server.  This will not send back any details of your job except if azimuth was used.
+    import urllib.request
+    url = "http://pathways.mcdb.ucla.edu/cgi-bin/MW_counter/counter.cgi?counter=" + details
+    try:
+        req = urllib.request.urlopen(url)
+    except:
+        pass        
 
 def printStartUp():
     print("Double-stranded Nick Fury -- Watch your Crispr targets with both eyes.")
@@ -192,14 +222,16 @@ class Args(object):
         parser.add_argument ("--targetList", help = "Enter a list of potential sites to analyze for off-target risk.")
         parser.add_argument ("--noForcedBases", help = "Prevent forcing bases 1 and/or 3 in the guide RNA to match those submitted for Azimuth analysis")
         parser.add_argument ("--skipAzimuth", help = "Do not attempt Azimuth analysis.", action = 'store_true')
-        parser.add_argument ("--parallelJobLimit", help = "Set a limit on the number of parallel jobs allowed at once in the queue for highly parallelized tasks (this MUST be set below your scheduler's limit for queued jobs for a single user, and should be set 5-10% below it).")
+        parser.add_argument ("--parallelJobLimit", help = "Set a limit on the number of parallel jobs allowed at once in the queue for highly parallelized tasks (this MUST be set below your scheduler's limit for queued jobs for a single user, and should be set 5-10 percent below it).")
         parser.add_argument ("--genomeDirectory", help = "Specify an alternate directory to search for suitable indexed genomes.")
         parser.add_argument ("--annotationExpansion", help = "Specify how far from the target site to search for an annotated gene/genomic feature (default is 1KB).")
         parser.add_argument ("--azimuthSequence", help = "Specify a sequence for Azimuth analysis.")
+        parser.add_argument ("--outputToFile", help = "In selection mode, dump the output to the filename passed as an argument here.")
+        parser.add_argument ("--scratchFolder", help = "Specify a directory to use for writing temporary (job) folders.")
         args = parser.parse_args()  #puts the arguments into the args object
         
         if not args.mode and not args.manual:  #series of case statements for mode to determine which set of inputs to validate.  If no mode was set, it will see if the user is asking for the manual.  
-            quit("No run mode was set on the commandline.")
+            quit("ABORTED: No run mode was set on the commandline.")
         self.mode = args.mode
         if not args.genomeDirectory:
             self.genomeListDirectory = "genomes/"
@@ -208,7 +240,7 @@ class Args(object):
             if not self.genomeListDirectory[-1] == "/":
                 self.genomeListDirectory += "/"
             if not os.path.isdir(self.genomeListDirectory) and not self.mode == 'index':
-                quit("User-specified genome: " + self.genomeListDirectory + " not found.")
+                quit("ABORTED: User-specified genome: " + self.genomeListDirectory + " not found.")
         if args.mode == 'worker':
             self.setWorkerArgs(args)
         elif args.mode == 'search':
@@ -223,13 +255,13 @@ class Args(object):
             printManual()
             quit()
         else:
-            quit('Invalid/no mode set on commandline.  Please select a mode or run with --manual set for assistance.')
+            quit('ABORTED: Invalid/no mode set on commandline.  Please select a mode or run with --manual set for assistance.')
             
     def setSelectionArgs(self, args):  #validating and setting arguments for selection of targets from a user-provided sequence
         import os
         self.sequence = args.sequence
         if not self.sequence:
-            quit("You must specify a generic sequence to describe your system (see manual, argument --manual) for more information.")
+            quit("ABORTED: You must specify a generic sequence to describe your system (see manual, argument --manual) for more information.")
         if "_" in args.sequence:
             guide, pam = args.sequence.split("_")
             try:
@@ -240,18 +272,18 @@ class Args(object):
                 args.sequence = "N"*guide + "_" + pam
             self.sequence = args.sequence.upper()
         else:
-            quit("Invalid sequence passed. Please include an underscore between the guide and PAM sequences.")
+            quit("ABORTED: Invalid sequence passed. Please include an underscore between the guide and PAM sequences.")
         if not len(self.sequence) > 15 and not args.clobber:
-            quit("This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
+            quit("ABORTED: This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
         self.targetSequence = args.targetSequence
         self.targetFasta = args.targetFasta
         if self.targetFasta and not os.path.isfile(self.targetFasta):
-            quit(self.targetFasta + " is not a valid file.")
+            quit("ABORTED: " + self.targetFasta + " is not a valid file.")
         self.targetList = args.targetList
         if self.targetList and not os.path.isfile(self.targetList):
-            quit(self.targetList + " is not a valid file.")
+            quit("ABORTED: " + self.targetList + " is not a valid file.")
         if not args.genome:
-            quit("You must set a genome.  See manual (run with --manual) for details.")
+            quit("ABORTED: You must set a genome.  See manual (run with --manual) for details.")
         self.genome = args.genome.upper()
         self.verbose = args.verbose
         self.mock = args.mock
@@ -259,7 +291,7 @@ class Args(object):
             try:
                 self.parallelJobs = int(args.parallelJobs)
             except ValueError:
-                quit("Parallel jobs argument must be an integer")
+                quit("ABORTED: Parallel jobs argument must be an integer")
         else: self.parallelJobs = 10
         if not args.mismatchTolerance:
             self.mismatchTolerance = 3
@@ -267,7 +299,7 @@ class Args(object):
             try:
                 self.mismatchTolerance = int(args.mismatchTolerance)
             except ValueError:
-                quit("Mismatch tolerance must be an integer.  Please check your command line options and try again.")
+                quit("ABORTED: Mismatch tolerance must be an integer.  Please check your command line options and try again.")
         if args.noForcedBases:
             if args.noForcedBases == "1":
                 self.noForcedBases = False
@@ -288,12 +320,30 @@ class Args(object):
             self.skipAzimuth = args.skipAzimuth
         self.noCleanup = args.noCleanup
         if not args.parallelJobLimit:
-            self.maxParallelJobs = 230
+            self.maxParallelJobs = defaultSelectionModeParallelJobLimit  #set this value at the top of the script for your configuration of choice
         else:
             try:
                 self.maxParallelJobs = int(args.parallelJobLimit)
             except ValueError:
-                quit("Parallel job limit must be an integer.")
+                quit("ABORTED: Parallel job limit must be an integer.")
+        if self.maxParallelJobs < self.parallelJobs:
+            self.maxParallelJobs = self.parallelJobs
+        self.outputToFile = args.outputToFile
+        if self.outputToFile and os.path.isfile(self.outputToFile) and not args.clobber:
+            quit("ABORTED: Output file " + self.outputToFile + " already exists.  Run in clobber mode to overwrite.")
+        self.clobber = args.clobber
+        self.scratchFolder = args.scratchFolder
+        if not self.scratchFolder:
+            self.scratchFolder = "" #making sure this is cast to a string and not a NoneType (although that will probably add to a string with no trouble)
+        else:
+            if not self.scratchFolder[-1] == "/":
+                self.scratchFolder = self.scratchFolder + "/"  #make sure that the directory name is passed ending with a slash so we can prepend it directly to our tempDir name
+            if not os.path.isdir(self.scratchFolder):
+                try:
+                    os.mkdir(self.scratchFolder)
+                except OSError:
+                    if not os.path.isdir(self.scratchFolder):  #This could happen because of a data race type condition, if one process creates the directory after this one checks for it, but before it creates it.  This will catch that problem.
+                        quit("ABORTED: Unable to create scratch folder.  Check if directory containing this folder already exists.")
             
     def setWorkerArgs(self, args):  #Validating arguments for a search worker.  This should not require too much validation, as users should not be launching worker processes themselves
         self.mode = "worker"
@@ -306,21 +356,22 @@ class Args(object):
         self.skipAzimuth = True
            
     def setSearchArgs(self, args):  #Validating arguments for launching a search supervisor.  This will require good validations, as users are likely to be launching this on their own.
+        import os
         self.mode = "search"
         self.sequence = args.sequence
         if not self.sequence:
-            quit("You must specify a sequence to search for.  Remember to place an underscore between the guide and PAM sequences.")
+            quit("ABORTED: You must specify a sequence to search for.  Remember to place an underscore between the guide and PAM sequences.")
         if not "_" in self.sequence:
-            quit("You must include an underscore '_' in your sequence between the guide RNA portion and the PAM sequence.")
+            quit("ABORTED: You must include an underscore '_' in your sequence between the guide RNA portion and the PAM sequence.")
         if not len(self.sequence) > 15 and not args.clobber:
-            quit("This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
+            quit("ABORTED: This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
         if not args.mismatchTolerance:
             self.mismatchTolerance = 3
         else:
             try:
                 self.mismatchTolerance = int(args.mismatchTolerance)
             except ValueError:
-                quit("Mismatch tolerance must be an integer.  Please check your command line options and try again.")
+                quit("ABORTED: Mismatch tolerance must be an integer.  Please check your command line options and try again.")
         self.tempDir = args.tempDir
         self.workerID = args.workerID
         self.inputDirectory = args.inputDirectory
@@ -332,7 +383,7 @@ class Args(object):
             try:
                 self.parallelJobs = int(args.parallelJobs)
             except ValueError:
-                quit("Parallel jobs argument must be an integer")
+                quit("ABORTED: Parallel jobs argument must be an integer")
         else: self.parallelJobs = 20
         self.outputDirectory = args.outputDirectory
         self.noCleanup = args.noCleanup
@@ -345,16 +396,27 @@ class Args(object):
             try:
                 self.annotationExpansion = int(self.annotationExpansion)
             except ValueError:
-                quit("Annotation expansion range must be an integer value.")
+                quit("ABORTED: Annotation expansion range must be an integer value.")
         self.azimuthSequence = args.azimuthSequence
         if not self.azimuthSequence or self.azimuthSequence == "False":
             self.azimuthSequence = False
+        self.scratchFolder = args.scratchFolder
+        if not self.scratchFolder:
+            self.scratchFolder = "" #making sure this is cast to a string and not a NoneType (although that will probably add to a string with no trouble)
+        else:
+            if not self.scratchFolder[-1] == "/":
+                self.scratchFolder = self.scratchFolder + "/"  #make sure that the directory name is passed ending with a slash so we can prepend it directly to our tempDir name
+            if not os.path.isdir(self.scratchFolder):
+                try:
+                    os.mkdir(self.scratchFolder)
+                except OSError:
+                    quit("ABORTED: Unable to create scratch folder.  Check if directory containing this folder already exists.")
 
     def setIndexArgs(self, args):  #Validating arguments for launching an indexing supervisor.  This will also require good validations as users are likely to be launching this on their own.
         import os
         self.mode = "index"
         if not args.sequence:
-            quit("No search sequence specified.")
+            quit("ABORTED: No search sequence specified.")
         if "_" in args.sequence:
             guide, pam = args.sequence.split("_")
             try:
@@ -365,17 +427,17 @@ class Args(object):
                 args.sequence = "N"*guide + "_" + pam
             self.sequence = args.sequence.upper()
         else:
-            quit("Invalid sequence passed. Please include an underscore between the guide and PAM sequences.")
+            quit("ABORTED: Invalid sequence passed. Please include an underscore between the guide and PAM sequences.")
         if not len(self.sequence) > 15 and not args.clobber:
-            quit("This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
+            quit("ABORTED: This guide+pam combination appears too short, and will likely cause memory and other errors.  Rerun in clobber mode (argument -9) to proceed anyway.")
         if not args.inputfile:
-            quit("No FASTA specified for searching.")
+            quit("ABORTED: No FASTA specified for searching.")
         if os.path.isfile(args.inputfile):
             self.inputfile = args.inputfile
         else:
-            quit("FASTA file: " + args.inputfile + " not found.")
+            quit("ABORTED: FASTA file: " + args.inputfile + " not found.")
         if not args.genome:
-            quit("You must specify the name you want to identify this genome by.")
+            quit("ABORTED: You must specify the name you want to identify this genome by.")
         self.genome = args.genome.upper()
         self.clobber = args.clobber
         self.mock = args.mock
@@ -387,7 +449,7 @@ class Args(object):
             try:
                 args.chunkSize = int(args.chunkSize)
             except ValueError:
-                quit("Invalid chunk size passed as argument (must be an integer)")
+                quit("ABORTED: Invalid chunk size passed as argument (must be an integer)")
             self.chunkSize = args.chunkSize
         else:
             self.chunkSize = 20000000
@@ -397,7 +459,7 @@ class Args(object):
             try:
                 tester = int(args.forceJobIndex)  #Leave this argument as a string until it is used so that a zero value can be passed for the index and will still evaluate to true.
             except ValueError:
-                quit("Forced job index argument must be an integer so that it can be used as an index.  If you don't understand why this is, you probably should not be messing with this argument.")
+                quit("ABORTED: Forced job index argument must be an integer so that it can be used as an index.  If you don't understand why this is, you probably should not be messing with this argument.")
             self.forceJobIndex = args.forceJobIndex
         else:
             self.forceJobIndex = False
@@ -410,7 +472,18 @@ class Args(object):
             try:
                 self.maxParallelJobs = int(args.parallelJobLimit)
             except ValueError:
-                quit("Parallel job limit must be an integer.")
+                quit("ABORTED: Parallel job limit must be an integer.")
+        self.scratchFolder = args.scratchFolder
+        if not self.scratchFolder:
+            self.scratchFolder = "" #making sure this is cast to a string and not a NoneType (although that will probably add to a string with no trouble)
+        else:
+            if not self.scratchFolder[-1] == "/":
+                self.scratchFolder = self.scratchFolder + "/"  #make sure that the directory name is passed ending with a slash so we can prepend it directly to our tempDir name
+            if not os.path.isdir(self.scratchFolder):
+                try:
+                    os.mkdir(self.scratchFolder)
+                except OSError:
+                    quit("ABORTED: Unable to create scratch folder.  Check if directory containing this folder already exists.")
     
     def setFASTAWorkerArgs(self, args):  #Validate arguments for launching a FASTA indexing worker.  Users are unlikely to be launching this on their own.
         import os
@@ -421,11 +494,11 @@ class Args(object):
         if "_" in args.sequence:
             self.sequence = args.sequence
         else:
-            quit("Invalid sequence passed to worker. Please include an underscore between the guide and PAM sequences.")
+            quit("ABORTED: Invalid sequence passed to worker. Please include an underscore between the guide and PAM sequences.")
         if os.path.isfile(args.inputfile):
             self.inputfile = args.inputfile
         else:
-            quit("FASTA file: " + args.inputfile + " not found.")
+            quit("ABORTED: FASTA file: " + args.inputfile + " not found.")
         self.genome = args.genome.upper()
         self.tempDir = args.tempDir
         self.workerID = args.workerID
@@ -433,7 +506,7 @@ class Args(object):
         #if os.path.isdir(args.tempDir):
         #    self.tempDir = args.tempDir
         #else:
-        #    quit("Unable to detect temporary directory: " + args.tempDir)
+        #    quit("ABORTED: Unable to detect temporary directory: " + args.tempDir)
         self.skipAzimuth = True
         self.species = args.species
         self.verbose = args.verbose
@@ -625,7 +698,7 @@ class TargetSelection(object):  #This is the main running object for the target 
     
     def __init__(self):
         printStartUp()
-        reportUseage(not args.skipAzimuth)
+        reportUsage("SELECTION")
         self.targetList = []
         self.indexedGenome = self.selectIndexedGenome() #we will pass this to the search supervisor.  This will save each supervisor a few seconds (probably not significant) and will cover for the potential loss of degeneracy when we pass the sequence to searcher agents 
         print("Checking for target sites")
@@ -633,14 +706,19 @@ class TargetSelection(object):  #This is the main running object for the target 
         if not self.targetList:
             self.targetList = TargetFinder(self.target).findMatches()
         if not self.targetList:
-            quit('No suitable target sequences found.')
+            quit('ABORTED: No suitable target sequences found.')
+        if selectionModeTargetLimitPerJob > 0 and len(self.targetList) > selectionModeTargetLimitPerJob and not args.clobber:
+            quit("ABORTED: Too many targets in sequence.  Try running a shorter target sequence, a more specific Crispr system, or using clobber mode (argument -9) to override this.")
         print("Found " + str(len(self.targetList)) + " potential target sites.")
         self.createTempDir()
         self.createJobList()
         self.runJobList()
         self.gatherResults()
         self.sortResults()
-        self.reportResults()
+        if not args.outputToFile:
+            self.reportResults()
+        else:
+            self.reportToFile()
         if not args.noCleanup:
             self.cleanup()
         
@@ -650,13 +728,13 @@ class TargetSelection(object):  #This is the main running object for the target 
             target = target.upper()
             for letter in target:
                 if letter not in ['A','T','G','C']:  #reject any degenerate sequences passed (probably reasonable to expect the user to have a good sequence for their target)
-                    quit("Invalid letters in targeted DNA sequence")
+                    quit("ABORTED: Invalid letters in targeted DNA sequence")
             self.target = target
         elif args.targetFasta:  #if the user referred us to a file for the sequence...
             try:
                 targetFasta = open(args.targetFasta, 'r')
             except FileNotFoundError:
-                quit("Unable to open the specified FASTA file")
+                quit("ABORTED: Unable to open the specified FASTA file")
             else:
                 target = ""
                 line = targetFasta.readline()
@@ -670,7 +748,7 @@ class TargetSelection(object):  #This is the main running object for the target 
                         for letter in line:
                             if letter not in ["A","T","G","C"]:
                                 targetFasta.close()
-                                quit("Invalid letters in the sequence file")
+                                quit("ABORTED: Invalid letters in the sequence file")
                         target += line
                         line = targetFasta.readline()
             self.target = target
@@ -679,7 +757,7 @@ class TargetSelection(object):  #This is the main running object for the target 
             try:
                 targetListFile = open(args.targetList, 'r')
             except FileNotFoundError:
-                quit("Unable to open the specified list of target sites")
+                quit("ABORTED: Unable to open the specified list of target sites")
             targetList = []
             line = targetListFile.readline()
             while line:
@@ -688,7 +766,7 @@ class TargetSelection(object):  #This is the main running object for the target 
                 line = line.upper()
                 for letter in line:
                     if letter not in ['A','T','G','C','_']:
-                        quit("Invalid character specified in target list item.")
+                        quit("ABORTED: Invalid character specified in target list item.")
                 if not "_" in line:
                     line = line[:-len(self.pam)] + "_" + line[-len(self.pam):]
                 targetList.append(TargetSite(line))  #we can't get an extended sequence from here, so longSeq will remain the default False value and the azimuth score will remain -1
@@ -697,12 +775,12 @@ class TargetSelection(object):  #This is the main running object for the target 
             targetListFile.close()
             print("Using targets from target list file.")
         else:
-            quit("No target sequence or list of target sites given/nothing for me to do.")
+            quit("ABORTED: No target sequence or list of target sites given/nothing for me to do.")
     
     def selectIndexedGenome(self):  #uses the user-passed guide_pam scheme to pick an indexed genome (or say if we don't have one) that is suitable for this run.  Remember that the sequence is stored in reverse
         import os
         if not os.path.isdir(args.genomeListDirectory):
-            quit("No indexed genome directory found.  Please run the indexer to create indexed genomes for searching.")
+            quit("ABORTED: No indexed genome directory found.  Please run the indexer to create indexed genomes for searching.")
         seqPam, seqGuide = args.sequence[::-1].split("_")
         self.pam = seqPam[::-1]
         self.guide = seqGuide[::-1]
@@ -715,7 +793,7 @@ class TargetSelection(object):  #This is the main running object for the target 
                     itemPamList = NondegenerateBases(itemPam).permutations()
                     if (seqPam == itemPam or seqPam in itemPam) and len(seqGuide) <= len(itemGuide):
                         return item
-        quit("Please create an indexed genome for this search.  No suitable indexed genome was found.")
+        quit("ABORTED: Please create an indexed genome for this search.  No suitable indexed genome was found.")
         
     def createTempDir(self):  #makes a temporary directory for this run.  Completions will clock out here and results will be reported back to it.
         if args.verbose:
@@ -723,13 +801,19 @@ class TargetSelection(object):  #This is the main running object for the target 
         import re
         import os
         import datetime
-        currenttime = datetime.datetime.now()
-        currenttime = str(currenttime)
-        currenttime = re.sub(r'\W','',currenttime)
-        self.tempDir = '.shieldHQ' + currenttime
-        if os.path.isdir(self.tempDir):
-            raise FileExistsError('Temporary directory for this job already exists.  Please look into this.  Directory name: ' + self.tempDir)
-        os.mkdir(self.tempDir)
+        successful = False
+        while not successful:
+            currenttime = datetime.datetime.now()
+            currenttime = str(currenttime)
+            currenttime = re.sub(r'\W','',currenttime)
+            self.tempDir = args.scratchFolder + '.shieldHQ' + currenttime
+            if os.path.isdir(self.tempDir):
+                continue
+            try:
+                os.mkdir(self.tempDir)
+            except OSError:
+                continue
+            successful = True
         os.mkdir(self.tempDir + "/completed")
         os.mkdir(self.tempDir + "/progress")
         os.mkdir(self.tempDir + "/result")
@@ -775,14 +859,17 @@ class TargetSelection(object):  #This is the main running object for the target 
                     if yesAnswer("Continue with run?"):
                         continue
                     else:
-                        quit("OK, terminating run.")
+                        quit("ABORTED: By your command.")
                     
     def createJobBash(self, job):  #Creates a bash file to submit for running the job
         self.bash = self.tempDir + "/" + str(job.cutSeq) + ".sh"
         bashFile = open(self.bash, 'w')
         bashFile.write("#! /bin/bash\n")
-        bashFile.write("module load python/3.4\n")
-        bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode search --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + job.cutSeq + " --forceGenome " + self.indexedGenome + " --outputDirectory " + self.tempDir + " --parallelJobs " + str(args.parallelJobs) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + " --azimuthSequence " + str(job.longSeq) + "\n")
+        scratchFolder = ""
+        if args.scratchFolder:
+            scratchFolder = " --scratchFolder " + args.scratchFolder
+        #bashFile.write("module load python/3.4\n")
+        bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury" + currentVersion + ".py --mode search --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + job.cutSeq + " --forceGenome " + self.indexedGenome + " --outputDirectory " + self.tempDir + " --parallelJobs " + str(args.parallelJobs) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + " --azimuthSequence " + str(job.longSeq) + scratchFolder + "\n")
         bashFile.close()
     
     def submitJob(self, job):  #submits the bash file to the queue scheduler
@@ -801,7 +888,9 @@ class TargetSelection(object):  #This is the main running object for the target 
         for i in range(0,len(self.targetList)):
             totalMismatchRisk = 0
             genesCounted = [] #prevent us from counting multiple hits in the same gene twice or from counting hits due to a nearby pseudogene
-            result = pickle.load(open(self.tempDir + "/result/" + self.targetList[i].cutSeq, 'rb'))
+            inputFile = open(self.tempDir + "/result/" + self.targetList[i].cutSeq, 'rb')
+            result = pickle.load(inputFile)
+            inputFile.close()
             self.targetList[i].matches = result['matches']
             self.targetList[i].azimuthScore = result['azimuthScore']
             if len(self.targetList[i].matches[0]) > 1:
@@ -849,6 +938,30 @@ class TargetSelection(object):  #This is the main running object for the target 
                     for site in target.matches[count]:
                         print("\t\t" + str(site))
                         
+    def reportToFile(self): #Reports results to a file passed as the appropriate argument
+        output = open(args.outputToFile,'w')  #We validated that this is not an existing file (or we are willing to clobber it) in the arg checking above
+        for target in self.targetList:
+            if target.acceptable:
+                output.write(target.cutSeq + "\tMismatch Risk: " + str(target.mismatchRisk) + "\n")
+                if int(target.azimuthScore) != -1:
+                    output.write(" "*len(target.cutSeq) + "\tAzimuth Score: " + str(target.azimuthScore) + "\n")
+                else:
+                    output.write(" "*len(target.cutSeq) + "\tAzimuth Score: Cannot determine" + "\n")
+                for count in range(0, args.mismatchTolerance + 1):
+                    output.write("\tMismatches: " + str(count) + "\n")
+                    for site in target.matches[count]:
+                        output.write("\t\t" + str(site) + "\n")
+        for target in self.targetList:
+            if not target.acceptable:
+                if not unacceptableHeaderPrinted:
+                    output.write("******SITES WITH PERFECT MATCHES ELSEWHERE IN THE GENOME******" + "\n")
+                    unacceptableHeaderPrinted = True
+                output.write(target.cutSeq + "\tMismatch Risk: " + str(target.mismatchRisk) + "\n")
+                for count in range(0, args.mismatchTolerance + 1):
+                    output.write("\tMismatches: " + str(count) + "\n")
+                    for site in target.matches[count]:
+                        output.write("\t\t" + str(site) + "\n")
+                        
     def cleanup(self):
         import shutil
         shutil.rmtree(self.tempDir)
@@ -866,53 +979,54 @@ class AzimuthAnalysis(object):
         self.azimuthAPIkey = self.getAzimuthAPIkey()
         if not self.azimuthAPIkey:
             self.score = -1
-        data = {
-            "Inputs":{
-                "input1":{
-                    "ColumnNames":["sequence", "cutsite", "percentpeptide"],
-                    "Values":[[sequence, "-1", "-1"]]
-                }
-            },
-                "GlobalParameters": {}
-        }
-        body = str.encode(json.dumps(data))
-        #url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/c24d128abfaf4832abf1e7ef45db4b54/execute?api-version=2.0&details=true'
-        url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/5c6cbabaef4947b4b7425e934b6f7d6b/execute?api-version=2.0&details=true'  #slower, but only one working for now.  Use for testing
-        api_key = self.azimuthAPIkey
-        headers = {'Content-Type':'application/json', 'Authorization':('Bearer '+ api_key)}
-        req = urllib.request.Request(url, body, headers)
-        try:
-            response = urllib.request.urlopen(req)
-            result = response.read().decode('utf-8')
-            result = json.loads(result)
-            self.score = float(result['Results']['output2']['value']['Values'][0][0])
-        except urllib.error.HTTPError as error:
-            if error.code == 401:
-                print("Unable to use Azimuth due to a possible invalid API key.  Please check on the status of key: " + self.azimuthAPIkey)
-            else:
-                print("The Azimuth request failed with status code: " + str(error.code))
-                print(error.info())
-                print(json.loads(error.read().decode('utf-8')))
-            self.useAzimuth = False
-            self.score = -1  #Remember that -1 is our placeholder value for a failed attempt or no attempt.
-        except urllib.error.URLError:
-            if not failedPrevious:
-                time.sleep(5) #wait 5 seconds before retry
-                self.score = AzimuthAnalysis(sequence, True).score
-            else:
-                print("Unable to reach/find Azimuth server.  Please confirm you are connected to the internet.")
+        else:
+            data = {
+                "Inputs":{
+                    "input1":{
+                        "ColumnNames":["sequence", "cutsite", "percentpeptide"],
+                        "Values":[[sequence, "-1", "-1"]]
+                    }
+                },
+                    "GlobalParameters": {}
+            }
+            body = str.encode(json.dumps(data))
+            #url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/c24d128abfaf4832abf1e7ef45db4b54/execute?api-version=2.0&details=true'
+            url = 'https://ussouthcentral.services.azureml.net/workspaces/ee5485c1d9814b8d8c647a89db12d4df/services/5c6cbabaef4947b4b7425e934b6f7d6b/execute?api-version=2.0&details=true'  #slower, but only one working for now.  Use for testing
+            api_key = self.azimuthAPIkey
+            headers = {'Content-Type':'application/json', 'Authorization':('Bearer '+ api_key)}
+            req = urllib.request.Request(url, body, headers)
+            try:
+                response = urllib.request.urlopen(req)
+                result = response.read().decode('utf-8')
+                result = json.loads(result)
+                self.score = float(result['Results']['output2']['value']['Values'][0][0])
+            except urllib.error.HTTPError as error:
+                if error.code == 401:
+                    print("Unable to use Azimuth due to a possible invalid API key.  Please check on the status of key: " + self.azimuthAPIkey)
+                else:
+                    print("The Azimuth request failed with status code: " + str(error.code))
+                    print(error.info())
+                    print(json.loads(error.read().decode('utf-8')))
                 self.useAzimuth = False
-                self.score = -1
-        except:  #Allowing this for now while dealing with many possible exceptions due to experimental server and software
-            if not failedPrevious:
-                time.sleep(5)
-                self.score = AzimuthAnalysis(sequence, True)  #give it another go, because why not...
-            else:
-                error = sys.exc_info()
-                print("Unexpected error in Azimuth scoring:")
-                for item in error:
-                    print(item)
-                self.score = -1
+                self.score = -1  #Remember that -1 is our placeholder value for a failed attempt or no attempt.
+            except urllib.error.URLError:
+                if not failedPrevious:
+                    time.sleep(5) #wait 5 seconds before retry
+                    self.score = AzimuthAnalysis(sequence, True).score
+                else:
+                    print("Unable to reach/find Azimuth server.  Please confirm you are connected to the internet.")
+                    self.useAzimuth = False
+                    self.score = -1
+            except:  #Allowing this for now while dealing with many possible exceptions due to experimental server and software
+                if not failedPrevious:
+                    time.sleep(5)
+                    self.score = AzimuthAnalysis(sequence, True)  #give it another go, because why not...
+                else:
+                    error = sys.exc_info()
+                    print("Unexpected error in Azimuth scoring:")
+                    for item in error:
+                        print(item)
+                    self.score = -1
         
     def getAzimuthAPIkey(self):  #this gets the API key from a file
         import os
@@ -1307,7 +1421,7 @@ class SearchSupervisor(object):
     def __init__(self):
         if not args.forceGenome:
             printStartUp()
-            reportUseage(not args.skipAzimuth) 
+            reportUsage("SEARCH") 
             genomeDirectory = self.selectIndexedGenome()
         else:
             genomeDirectory = args.forceGenome
@@ -1341,7 +1455,7 @@ class SearchSupervisor(object):
     def selectIndexedGenome(self):
         import os
         if not os.path.isdir(args.genomeListDirectory):
-            quit("No indexed genome directory found.  Please run the indexer to create indexed genomes for searching.")
+            quit("ABORTED: No indexed genome directory found.  Please run the indexer to create indexed genomes for searching.")
         seqPam, seqGuide = args.sequence[::-1].split("_")
         directoryContents = os.listdir(args.genomeListDirectory)
         for item in directoryContents:
@@ -1353,7 +1467,7 @@ class SearchSupervisor(object):
                     if (seqPam == itemPam or seqPam in itemPamList) and len(seqGuide) <= len(itemGuide):
                         self.species = itemSpecies.strip().lower()
                         return item
-        quit("Please create an indexed genome for this search.  No suitable indexed genome was found.")
+        quit("ABORTED: Please create an indexed genome for this search.  No suitable indexed genome was found.")
                 
     def createTempDir(self):
         if args.verbose:
@@ -1361,13 +1475,19 @@ class SearchSupervisor(object):
         import re
         import os
         import datetime
-        currenttime = datetime.datetime.now()
-        currenttime = str(currenttime)
-        currenttime = re.sub(r'\W','',currenttime)
-        self.tempDir = '.dsNickFuryMission' + currenttime
-        if os.path.isdir(self.tempDir):
-            raise FileExistsError('Temporary directory for this job already exists.  Please look into this.  Directory name: ' + self.tempDir)
-        os.mkdir(self.tempDir)
+        successful = False
+        while not successful:
+            currenttime = datetime.datetime.now()
+            currenttime = str(currenttime)
+            currenttime = re.sub(r'\W','',currenttime)
+            self.tempDir = args.scratchFolder + '.dsNickFuryMission' + currenttime
+            if os.path.isdir(self.tempDir):
+                continue
+            try:
+                os.mkdir(self.tempDir)
+            except OSError:
+                continue
+            successful = True
         os.mkdir(self.tempDir + "/completed")
         os.mkdir(self.tempDir + "/progress")
         os.mkdir(self.tempDir + "/result")
@@ -1415,7 +1535,9 @@ class SearchSupervisor(object):
     def assignJobs(self):
         import pickle  #pickle has security issues, know about them before using it
         for i in range(1,len(self.jobList)):  #we index to 1 here because job 0 (which will have an equal or greater number of searches) will be reserved for the supervisor instance
-            pickle.dump(self.jobList[i], open(self.tempDir + "/mission" + str(i), "wb"))  #this could also be dumped to a network socket
+            outputFile = open(self.tempDir + "/mission" + str(i), "wb")
+            pickle.dump(self.jobList[i], outputFile)  #this could also be dumped to a network socket
+            outputFile.close()
             self.createJobBash(i)
             self.submitJob(i)
         print("Submitted all jobs.  Beginning worker job on this node.")
@@ -1429,8 +1551,8 @@ class SearchSupervisor(object):
         self.bash = self.tempDir + "/" + str(jobID) + ".sh"
         bashFile = open(self.bash, 'w')
         bashFile.write("#! /bin/bash\n")
-        bashFile.write("module load python/3.4\n")
-        bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode worker --workerID " + str(jobID) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + args.sequence + " --inputDirectory " + self.genomeDirectory + " --tempDir " + self.tempDir + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
+        #bashFile.write("module load python/3.4\n")
+        bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury" + currentVersion + ".py --mode worker --workerID " + str(jobID) + " --mismatchTolerance " + str(args.mismatchTolerance) + " --sequence " + args.sequence + " --inputDirectory " + self.genomeDirectory + " --tempDir " + self.tempDir + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         bashFile.close()
     
     def submitJob(self, jobID):
@@ -1468,7 +1590,9 @@ class SearchSupervisor(object):
     def gatherJobs(self):
         import pickle
         for i in range(1,len(self.jobList)):
-            gatheredPart = pickle.load(open(self.tempDir + "/result/" + str(i), "rb"))
+            inputFile = open(self.tempDir + "/result/" + str(i), "rb")
+            gatheredPart = pickle.load(inputFile)
+            inputFile.close()
             for j in range(0,args.mismatchTolerance + 1):
                 self.matches[j] += gatheredPart[j]
                 
@@ -1555,7 +1679,9 @@ class SearchSupervisor(object):
         print(self.matches)
         print(args.sequence)
         print("Starting pickle")
-        pickle.dump(outputData, open(args.outputDirectory + "/result/" + args.sequence, 'wb'))
+        outputFile = open(args.outputDirectory + "/result/" + args.sequence, 'wb')
+        pickle.dump(outputData, outputFile)
+        outputFile.close()
         print("Pickle done.")
         clockOut = open(args.outputDirectory + "/completed/" + args.sequence, 'w')
         clockOut.close()
@@ -1590,7 +1716,9 @@ class WorkerJob(object):
         
     def getJobList(self):
         import pickle
-        jobList = pickle.load(open(args.tempDir + "/mission" + args.workerID, "rb"))
+        inputFile = open(args.tempDir + "/mission" + args.workerID, "rb")
+        jobList = pickle.load(inputFile)
+        inputFile.close()
         return jobList
         
     def createColorScheme(self):
@@ -1631,7 +1759,7 @@ class WorkerJob(object):
                                 if mismatches > args.mismatchTolerance:
                                     break
                         except IndexError:
-                            quit("Encountered an error reading " + fileName + " where we got an error comparing input sequence " + self.guide + " to " + guide + ".  This could be due to a corrupted, shortened sequence in the data file, or a bug in the program.")
+                            quit("ABORTED: Encountered an error reading " + fileName + " where we got an error comparing input sequence " + self.guide + " to " + guide + ".  This could be due to a corrupted, shortened sequence in the data file, or a bug in the program.")
                         if i == len(self.guide) - 1:
                             matchGuide = guide[:len(guide)]
                             matchGuide = matchGuide[::-1]
@@ -1658,7 +1786,9 @@ class WorkerJob(object):
         else:
             import pickle
             self.tempDir = args.tempDir
-            pickle.dump(self.matchTable, open(self.tempDir + "/result/" + args.workerID, "wb"))
+            outputFile = open(self.tempDir + "/result/" + args.workerID, "wb")
+            pickle.dump(self.matchTable, outputFile)
+            outputFile.close()
             # output = open(self.tempDir + "/result" + args.workerID, "w")
             # for line in self.matches:
             #     output.write("\t".join(line) + "\n")  #check if this works more efficiently from a pickle
@@ -1701,17 +1831,17 @@ class FASTASupervisor(object):
     
     def __init__(self):
         printStartUp()
-        reportUseage(not args.skipAzimuth)
+        reportUsage("INDEX")
         if not args.clobber:
             if not self.isAnEnsemblSpecies(args.species):  #make sure that the species they entered is one that is annotated, or make them set an option to ignore this
-                quit(args.species.upper() + " is not a valid ensembl species.  Please check your naming of this species.  If this is known not to be an ensembl species, rerun with clobber mode on (argument '-9') to ignore this issue.")
+                quit("ABORTED: " + args.species.upper() + " is not a valid ensembl species.  Please check your naming of this species.  If this is known not to be an ensembl species, rerun with clobber mode on (argument '-9') to ignore this issue.")
             redundantGenome = self.suitableIndexedGenomeExists()
             if redundantGenome:
                 seq, genome, species = redundantGenome.split(".")
                 print("Suitable indexed genome already exists.  Indexed genome info:")
                 print("Sequence " + seq[::-1])
                 print("  Genome " + genome)
-                quit()
+                quit("ABORTED: Suitable genome exists.  Please delete existing one (or run in clobber mode, not recommended).")
         self.getFiles(args.inputfile)
         self.createTempDir()
         self.createOutputDir()
@@ -1741,7 +1871,7 @@ class FASTASupervisor(object):
                 if itemGenome == args.genome:
                     if args.species.upper() != itemSpecies:  #If someone is trying to index a genome as being from a different species than an already annotated genome of the same name, warn them and require them to set the clobber option to do it.  They really should not be doing that.
                         if not args.clobber:
-                            quit("Warning: This exact genome has already been indexed as species " + itemSpecies + " it should not also be indexed as " + args.species.upper() + ".  If you wish to actually have this situation (not recommended), please set the clobber option in arguments (argument '-9').")
+                            quit("ABORTED: Warning: This exact genome has already been indexed as species " + itemSpecies + " it should not also be indexed as " + args.species.upper() + ".  If you wish to actually have this situation (not recommended), please set the clobber option in arguments (argument '-9').")
                     itemPam, itemGuide = itemSeq.split("_")
                     if seqPam == itemPam and len(seqGuide) <= len(itemGuide):
                         return item
@@ -1771,17 +1901,17 @@ class FASTASupervisor(object):
             self.fasta = open(fastaName)
             firstLine = self.fasta.readline()
             if not ">" in firstLine:
-                quit(fastaName + " does not appear to be a properly formatted FASTA file.  Please check to be sure that it follows FASTA standards.")
+                quit("ABORTED: " + fastaName + " does not appear to be a properly formatted FASTA file.  Please check to be sure that it follows FASTA standards.")
             self.fasta.close()
         except FileNotFoundError:
-            quit(fastaName + " was not found.  This file was passed as the reference genome.")
+            quit("ABORTED: " + fastaName + " was not found.  This file was passed as the reference genome.")
         try:
             self.fai = open(fastaName + ".fai",'r')
         except FileNotFoundError:
             try:
                 self.fai = open(fastaName[:-4] + ".fai", 'r')
             except FileNotFoundError:
-                quit("No FASTA index (.fai) file could be found for " + fastaName + " please run a FASTA indexer and try again.")
+                quit("ABORTED: No FASTA index (.fai) file could be found for " + fastaName + " please run a FASTA indexer and try again.")
     
     def createOutputDir(self):
         import os
@@ -1791,7 +1921,7 @@ class FASTASupervisor(object):
             os.mkdir("genomeData")
         outputDirectory = args.genomeListDirectory + args.sequence[::-1] + "." + args.genome + "." + args.species
         if os.path.isdir(outputDirectory) and not args.clobber:
-            quit("This genome/system combination has already been indexed.")
+            quit("ABORTED: This genome/system combination has already been indexed.")
         if not os.path.isdir(outputDirectory):
             os.mkdir(outputDirectory)
     
@@ -1868,14 +1998,20 @@ class FASTASupervisor(object):
         import re
         import os
         import datetime
-        currenttime = datetime.datetime.now()
-        currenttime = str(currenttime)
-        currenttime = re.sub(r'\W','',currenttime)
-        self.tempDir = '.indexJob' + currenttime
-        args.tempDir = self.tempDir
-        if os.path.isdir(self.tempDir):
-            raise FileExistsError('Temporary directory for this job already exists.  Please look into this.  Directory name: ' + self.tempDir)
-        os.mkdir(self.tempDir)
+        successful = False
+        while not successful:
+            currenttime = datetime.datetime.now()
+            currenttime = str(currenttime)
+            currenttime = re.sub(r'\W','',currenttime)
+            self.tempDir = args.scratchFolder + '.indexJob' + currenttime
+            args.tempDir = self.tempDir
+            if os.path.isdir(self.tempDir):
+                continue
+            try:
+                os.mkdir(self.tempDir)
+            except OSError:
+                continue
+            successful = True
         os.mkdir(self.tempDir + "/completed")
         os.mkdir(self.tempDir + "/progress")
         return True
@@ -1887,9 +2023,9 @@ class FASTASupervisor(object):
         bashFile.write("#! /bin/bash\n")
         bashFile.write("module load python/3.4\n")
         if not workerID:
-            bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode FASTAWorker --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
+            bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury" + currentVersion + ".py --mode FASTAWorker --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         else:
-            bashFile.write("python3 dsNickFury" + currentVersion + ".py --mode FASTAWorker --workerID " + str(workerID) + " --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --chunkSize " + str(args.chunkSize) + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
+            bashFile.write(pythonInterpreterAbsolutePath + " dsNickFury" + currentVersion + ".py --mode FASTAWorker --workerID " + str(workerID) + " --chromosome " + job.contig + " --start " + str(job.start) + " --length " + str(job.end) + " --sequence " + args.sequence + " --inputfile " + os.path.abspath(args.inputfile) + " --genome " + args.genome + " --tempDir " + args.tempDir + " --chunkSize " + str(args.chunkSize) + " --species " + args.species + " --genomeDirectory " + args.genomeListDirectory.replace(" ",'\ ') + "\n")
         bashFile.close()
     
     def submitJob(self, job, workerID = False):
@@ -2158,8 +2294,8 @@ class FASTAreader(object):
 def main():
     import datetime
     import os
-    if not os.path.isdir("schedulerOutput"):
-        os.mkdir("schedulerOutput")
+    if not os.path.isdir("schedulerOutput"):  #Used for writing scheduler output of subprocesses to a single folder, otherwise this folder can start getting messy.  Only needed for cluster operation, not single server.
+       os.mkdir("schedulerOutput")
     startTime = datetime.datetime.now()
     arguments = Args()
     global args
