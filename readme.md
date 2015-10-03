@@ -1,6 +1,6 @@
 
 
-**How to use this dsNickFury:**
+**How to use dsNickFury:**
 ------------------------
 
 
