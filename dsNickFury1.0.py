@@ -28,7 +28,7 @@ You agree:
 
 #USEFUL DEFAULT SETTINGS HERE
 global pythonInterpreterAbsolutePath
-pythonInterpreterAbsolutePath = "python3"  #Set the absolute path for your python interpreter here.  Depending on your system configuration, you may also be able to use a shortcut, such as python3
+pythonInterpreterAbsolutePath = ""  #Set the absolute path for your python interpreter here.  Depending on your system configuration, you may also be able to use a shortcut, such as python3
 
 global selectionModeTargetLimitperJob
 selectionModeTargetLimitPerJob = 0  #This prevents a user from submitting a job with too many target sites that might overload or degrade performance on the system.  Clobber mode can override this.  Change this value according to your system's capabilities.  Set to 0 or negative value for no limit.
