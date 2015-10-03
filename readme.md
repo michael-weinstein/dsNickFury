@@ -1,6 +1,7 @@
 
 
-**How to use dsNickFury:**
+**HOW TO USE dsNickFury:**
+
 ------------------------
 
 
@@ -16,8 +17,7 @@ You can also set some limits on job size while you're editing this portion of th
 
 **Requirements:**
 
-This program requires Python3 and the basic Python library (urllib was likely included with your installation).
-dsNickFury (the original) has an absolute requirement of running on a cluster with a job scheduler like openSGE or similar dsNickFury-Server can run on a single system, although some jobs are likely to take much longer (especially indexing large genomes).
+This program requires Python3 and the basic Python library (urllib was likely included with your installation).  DsNickFury (the original) has an absolute requirement of running on a cluster with a job scheduler like openSGE or similar.  DsNickFury-Server can run on a single system, although some jobs are likely to take much longer (especially indexing large genomes).
 
 **Setting different modes:**
 
@@ -32,7 +32,8 @@ There are 5 possible modes for this program to run in:
 *worker* is a search worker process for parallelizing the search to speed it up.  Users generally won't set this unless troubleshooting.
 
 *FASTAworker* is a worker process for indexing a genome.  Users will generally not set this either, unless troubleshooting.
-The mode will always be passed under the **-m** command line argument and is always required.
+
+The mode will always be passed under the **-m** command line argument and is *always* required for a run.
 
 **How to run a job:**
 
