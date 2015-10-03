@@ -5,6 +5,7 @@
 
 **
 **dsNickFury *vs.* dsNickFury-Server**
+
 The two programs are very similar, with the only differences being that Server is designed for running on a single machine or web server while the original was designed to run on a large cluster system designed to take **qsub** commands.  After reconciling any differences between the two versions,  the only differences between them are how they execute parallel jobs and the preset limits on parallel job count and maximum targets in a selection job.  Because of this,  there is a very good chance that the next version I make will be a unification between these two, with a command line option deciding between single-system and cluster.
 **Setting up the script**
 In order to run, you *MUST* enter either the absolute path (preferred) or the shortcut you use (carries potential risks of errors) to access your python3 interpreter.  You can do this by looking for where the global variable pythonInterpreterAbsolutePath is set (this should be just after the license information, or just grep for the second time it appears).  Remember to enter the path between the quotes and remove any spaces at the beginning or end.
