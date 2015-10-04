@@ -19,7 +19,7 @@ You can also set some limits on job size while you're editing this portion of th
 
 **Requirements:**
 
-This program requires Python3 and the basic Python library (urllib was likely included with your installation).  DsNickFury (the original) has an absolute requirement of running on a cluster with a job scheduler like openSGE or similar.  DsNickFury-Server can run on a single system, although some jobs are likely to take much longer (especially indexing large genomes).
+This program requires Python3 and the basic Python library (urllib was likely included with your installation).  To run with the **--cluster--** option set, you will (obviously) need to be on a cluster system with a scheduler that can take *qsub* commands.  If you have a cluster that requres different commands to schedule jobs, please contact me and we can look into making this compatible.
 
 **Setting different modes:**
 
