@@ -820,8 +820,8 @@ class TargetSelection(object):  #This is the main running object for the target 
             import os
             command = "qsub -cwd -V -N " + shortName + " -l h_data=2G,time=23:59:00 -e " + os.getcwd() +  "/schedulerOutput/ -o " + os.getcwd() + "/schedulerOutput/ " + self.bash
             if not args.mock:
-                import os
-                os.system(command)
+                import subprocess
+                subprocess.Popen(command, shell = True)
             else:
                 print ("MOCK SUBMIT: " + command)
         if args.standAlone:
@@ -1508,10 +1508,12 @@ class SearchSupervisor(object):
     def submitJob(self, jobID):
         shortName = "NickFury" + str(jobID)
         if args.cluster:
+            import time
             import os
             command = "qsub -cwd -V -N " + shortName + " -l h_data=2G,time=0:59:00 -e " + os.getcwd() +  "/schedulerOutput/ -o " + os.getcwd() + "/schedulerOutput/ " + self.bash
             if not args.mock:
                 import os
+                time.sleep(10)
                 os.system(command)
             else:
                 print ("MOCK SUBMIT: " + command)
