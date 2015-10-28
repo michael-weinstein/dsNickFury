@@ -1840,14 +1840,17 @@ class FASTASupervisor(object):
         directoryContents = os.listdir(args.genomeListDirectory)
         for item in directoryContents:
             if not item[0] == "." and "." in item and "_" in item and "NNN" in item:
-                itemSeq, itemGenome, itemSpecies = item.split(".")
-                if itemGenome == args.genome:
-                    if args.species.upper() != itemSpecies:  #If someone is trying to index a genome as being from a different species than an already annotated genome of the same name, warn them and require them to set the clobber option to do it.  They really should not be doing that.
-                        if not args.clobber:
-                            quit("ABORTED: Warning: This exact genome has already been indexed as species " + itemSpecies + " it should not also be indexed as " + args.species.upper() + ".  If you wish to actually have this situation (not recommended), please set the clobber option in arguments (argument '-9').")
-                    itemPam, itemGuide = itemSeq.split("_")
-                    if seqPam == itemPam and len(seqGuide) <= len(itemGuide):
-                        return item
+                try:
+                    itemSeq, itemGenome, itemSpecies = item.split(".")
+                    if itemGenome == args.genome:
+                        if args.species.upper() != itemSpecies:  #If someone is trying to index a genome as being from a different species than an already annotated genome of the same name, warn them and require them to set the clobber option to do it.  They really should not be doing that.
+                            if not args.clobber:
+                                quit("ABORTED: Warning: This exact genome has already been indexed as species " + itemSpecies + " it should not also be indexed as " + args.species.upper() + ".  If you wish to actually have this situation (not recommended), please set the clobber option in arguments (argument '-9').")
+                        itemPam, itemGuide = itemSeq.split("_")
+                        if seqPam == itemPam and len(seqGuide) <= len(itemGuide):
+                            return item
+                except ValueError:
+                    continue
         return False
     
     def isAnEnsemblSpecies(self, species):
