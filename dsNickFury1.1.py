@@ -723,7 +723,7 @@ class TargetSelection(object):  #This is the main running object for the target 
         self.guide = seqGuide[::-1]
         directoryContents = os.listdir(args.genomeListDirectory)
         for item in directoryContents:
-            if not item[0] == "." and "." in item and "_" in item and "NNN" in item:
+            if not item[0] == "." and item.count(".") == 2 and "_" in item and "NNN" in item:
                 itemSeq, itemGenome, species = item.split(".")
                 if itemGenome == args.genome:
                     itemPam, itemGuide = itemSeq.split("_")
@@ -821,7 +821,9 @@ class TargetSelection(object):  #This is the main running object for the target 
             command = "qsub -cwd -V -N " + shortName + " -l h_data=2G,time=23:59:00 -e " + os.getcwd() +  "/schedulerOutput/ -o " + os.getcwd() + "/schedulerOutput/ " + self.bash
             if not args.mock:
                 import subprocess
+                import time
                 subprocess.Popen(command, shell = True)
+                time.sleep(1)   #Testing this to see if it prevents errors with the job schedulers by slowing job submission a little 
             else:
                 print ("MOCK SUBMIT: " + command)
         if args.standAlone:
